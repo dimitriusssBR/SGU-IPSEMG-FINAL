@@ -1,3 +1,4 @@
+import datetime
 import os
 import re
 import time
@@ -287,6 +288,26 @@ async def buscar_chbpm_endpoint(request: CBHPMRequest):
 def remover_acentos(texto):
     return unicodedata.normalize('NFD', texto).encode('ascii', 'ignore').decode('utf-8')
 
+def sanitize_filename_part(text: str) -> str:
+    """
+    Remove acentos, caracteres estranhos e troca espaços por _.
+    Deixa só letras, números, _ e -.
+    """
+    if not text:
+        return "Paciente"
+
+    # remove acentos
+    text_norm = unicodedata.normalize("NFKD", text)
+    text_ascii = text_norm.encode("ascii", "ignore").decode("ascii")
+
+    # troca tudo que não é letra/número/_/- por _
+    text_clean = re.sub(r"[^A-Za-z0-9_-]+", "_", text_ascii)
+
+    # remove _ duplicado e bordas
+    text_clean = re.sub(r"_+", "_", text_clean).strip("_")
+
+    return text_clean or "Paciente"
+
 def set_cell_value_safely(ws, coord: str, value):
     """
     Se a célula for parte de um merged range, grava na célula
@@ -308,55 +329,11 @@ def set_cell_value_safely(ws, coord: str, value):
     raise ValueError(f"Célula {coord} é mesclada mas o range não foi encontrado.")
 
 
-@app.post("/ipsemg-sadt-saas")
-async def ipsemg_sadt_pdf(payload: IpsemgPayload):
-    try:
-        # 1) Carrega o template, preenche a planilha e salva no /tmp
-        wb = openpyxl.load_workbook(IPSEMG_SADT)
-        ws = wb.active
-
-        # ---- preenche as células como você já faz ----
-        set_cell_value_safely(ws, "B7", payload.nome_beneficiario)
-        set_cell_value_safely(ws, "B13", payload.solicitante)
-        set_cell_value_safely(ws, "B10", payload.prestador)
-        set_cell_value_safely(ws, "W10", payload.matricula)
-        set_cell_value_safely(ws, "B16", payload.uf)
-        set_cell_value_safely(ws, "Z13", payload.crm)
-        # ... resto do preenchimento ...
-
-        # 2) Cria diretório temporário e salva o XLSX preenchido
-        tmp_dir = Path(tempfile.mkdtemp())
-        xlsx_path = tmp_dir / "ipsemg_sadt_output.xlsx"
-        wb.save(xlsx_path)
-
-        # 3) Gera o PDF a partir do XLSX (como você já faz hoje)
-        #    assumindo que gerar_pdf_final(xlsx_path) retorna o caminho do PDF
-        pdf_path = gerar_pdf_final(xlsx_path)
-
-        if not pdf_path or not Path(pdf_path).exists():
-            raise HTTPException(status_code=500, detail="Erro ao gerar o PDF da guia")
-
-        # 4) Retorna o PDF diretamente para o navegador
-        return FileResponse(
-            path=str(pdf_path),
-            media_type="application/pdf",
-            filename="guia_ipsemg_sadt.pdf"
-        )
-
-    except HTTPException:
-        raise
-    except Exception as e:
-        # opcional: logar o erro
-        logger.exception("Erro ao gerar guia IPSEMG SADT")
-        raise HTTPException(status_code=500, detail="Erro ao gerar a guia IPSEMG SADT")
-
-@app.post("/ipsemg-sadt")
-async def ipsemg_sadt(payload: IpsemgPayload):
-
+async def _ipsemg_sadt_core(payload: IpsemgPayload) -> dict:
     if not os.path.exists(IPSEMG_SADT):
         raise HTTPException(status_code=500, detail=f"Arquivo {IPSEMG_SADT} não encontrado")
 
-    # ----- diretório isolado por requisição -----
+    # ----- diretório isolado por requisição (se já estiver assim na sua rota atual, mantenha) -----
     request_id = uuid.uuid4().hex
     base_dir = Path("/tmp") / request_id
     base_dir.mkdir(parents=True, exist_ok=True)
@@ -366,7 +343,7 @@ async def ipsemg_sadt(payload: IpsemgPayload):
 
     # carrega template
     wb = openpyxl.load_workbook(IPSEMG_SADT)
-    ws = wb.active   # primeira aba
+    ws = wb.active  # primeira aba
 
     # -------------------------------------------------
     # CAMPOS SIMPLES
@@ -474,16 +451,16 @@ async def ipsemg_sadt(payload: IpsemgPayload):
 
         cod_coord = f"B{row}"
         desc_coord = f"G{row}"
-        qtd_coord  = f"AE{row}"
+        qtd_coord = f"AE{row}"
 
-        set_cell_value_safely(ws, cod_coord, codigos[idx]      if idx < len(codigos)      else "")
-        set_cell_value_safely(ws, desc_coord, descricoes[idx]  if idx < len(descricoes)   else "")
-        set_cell_value_safely(ws, qtd_coord,  quantidades[idx] if idx < len(quantidades)  else "")
+        set_cell_value_safely(ws, cod_coord, codigos[idx] if idx < len(codigos) else "")
+        set_cell_value_safely(ws, desc_coord, descricoes[idx] if idx < len(descricoes) else "")
+        set_cell_value_safely(ws, qtd_coord, quantidades[idx] if idx < len(quantidades) else "")
 
     # salva o XLSX desta requisição
+
     wb.save(xlsx_path)
 
-    # Gera o PDF a partir do XLSX (converter + marca + 1 página)
     try:
         pdf_file = gerar_pdf_final(str(xlsx_path))
     except Exception as e:
@@ -498,9 +475,11 @@ async def ipsemg_sadt(payload: IpsemgPayload):
         "payload": payload.model_dump()
     }
 
-@app.post("/ipsemg-internacao")
-async def ipsemg_internacao(payload: IpsemgPayload):
+@app.post("/ipsemg-sadt")
+async def ipsemg_sadt(payload: IpsemgPayload):
+    return await _ipsemg_sadt_core(payload)
 
+async def _ipsemg_internacao_core(payload: IpsemgPayload) -> dict:
     if not os.path.exists(IPSEMG_INTERNACAO):
         raise HTTPException(
             status_code=500,
@@ -519,8 +498,6 @@ async def ipsemg_internacao(payload: IpsemgPayload):
 
     # -------------------------------------------------
     # CARÁTER (ELETIVO / URGÊNCIA)
-    # eletivo -> X em E9
-    # urgência -> X em R9
     # -------------------------------------------------
     car = (payload.carater or "").strip().lower()
 
@@ -535,15 +512,11 @@ async def ipsemg_internacao(payload: IpsemgPayload):
     # -------------------------------------------------
     # CAMPOS SIMPLES
     # -------------------------------------------------
-    # matrícula -> B13
-    set_cell_value_safely(ws, "B13", payload.matricula)
-
-    # prestador -> H13
-    set_cell_value_safely(ws, "H13", payload.prestador)
+    set_cell_value_safely(ws, "B13", payload.matricula)      # matrícula
+    set_cell_value_safely(ws, "H13", payload.prestador)      # prestador
 
     sexo = (payload.sexo or "").strip().lower()
 
-    # Limpamos os dois
     set_cell_value_safely(ws, "U17", "")
     set_cell_value_safely(ws, "AB17", "")
 
@@ -557,7 +530,6 @@ async def ipsemg_internacao(payload: IpsemgPayload):
 
     # -------------------------------------------------
     # DATA NASCIMENTO BENEFICIÁRIO (dd/mm/aaaa)
-    # L17 (dia), N17 (mês), P17 (ano)
     # -------------------------------------------------
     dia_nasc, mes_nasc, ano_nasc = "", "", ""
     try:
@@ -574,9 +546,6 @@ async def ipsemg_internacao(payload: IpsemgPayload):
 
     # -------------------------------------------------
     # CÓDIGOS / DESCRIÇÕES / QUANTIDADES
-    # códigos      -> B29 a B38
-    # descrições   -> G29 a G38
-    # quantidades  -> AG29 a AG38
     # -------------------------------------------------
     max_linhas = 10  # 29..38
 
@@ -596,13 +565,12 @@ async def ipsemg_internacao(payload: IpsemgPayload):
         set_cell_value_safely(ws, qtd_coord,  quantidades[idx] if idx < len(quantidades)  else "")
 
     # -------------------------------------------------
-    # INDICAÇÃO CLÍNICA -> B53 (texto livre, sem quebra manual)
+    # INDICAÇÃO CLÍNICA -> B53
     # -------------------------------------------------
     set_cell_value_safely(ws, "B53", payload.indicacao_clinica)
 
     # -------------------------------------------------
     # HIPÓTESE + CID -> B59
-    # formato: "pneumonia - J63"
     # -------------------------------------------------
     hipotese = (payload.hipotese or "").strip()
     cid = (payload.cid or "").strip()
@@ -618,16 +586,13 @@ async def ipsemg_internacao(payload: IpsemgPayload):
 
     # -------------------------------------------------
     # SOLICITANTE / CRM / ESPECIALIDADE
-    # solicitante  -> B62
-    # CRM          -> B64
-    # especialidade-> I64
     # -------------------------------------------------
     set_cell_value_safely(ws, "B62", payload.solicitante)
     set_cell_value_safely(ws, "B64", payload.crm)
     set_cell_value_safely(ws, "I64", payload.especialidade)
 
     # -------------------------------------------------
-    # DATA DA GUIA (dd/mm/aaaa) -> AB64 (dia), AD64 (mês), AF64 (ano)
+    # DATA DA GUIA (dd/mm/aaaa) -> AB64, AD64, AF64
     # -------------------------------------------------
     dia, mes, ano = "", "", ""
     try:
@@ -662,6 +627,68 @@ async def ipsemg_internacao(payload: IpsemgPayload):
         "payload": payload.model_dump()
     }
 
+
+# Endpoint JSON (mantém compatibilidade com o que já existe)
+@app.post("/ipsemg-internacao")
+async def ipsemg_internacao(payload: IpsemgPayload):
+    return await _ipsemg_internacao_core(payload)
+
+@app.post("/ipsemg-sadt-saas")
+async def ipsemg_sadt_saas(payload: IpsemgPayload):
+    # Reusa a MESMA lógica que já sabemos que funciona
+    result = await _ipsemg_sadt_core(payload)
+
+    pdf_path = result.get("arquivo_pdf")
+    if not pdf_path or not Path(pdf_path).exists():
+        raise HTTPException(status_code=500, detail="PDF não encontrado após geração da guia")
+
+    # Monta o nome do arquivo: LIA_Sgu_Express_+nome_beneficiario+IPSEMG+data.pdf
+    nome_benef = sanitize_filename_part(payload.nome_beneficiario or "Paciente")
+
+    if getattr(payload, "data", None):
+        data_bruta = payload.data
+    else:
+        data_bruta = datetime.now().strftime("%d/%m/%Y")
+
+    data_formatada = data_bruta.replace("/", "-")
+
+    filename = f"LIA_Sgu_Express_+{nome_benef}+IPSEMG+{data_formatada}.pdf"
+
+    return FileResponse(
+        path=pdf_path,
+        media_type="application/pdf",
+        filename=filename
+    )
+
+@app.post("/ipsemg-internacao-saas")
+async def ipsemg_internacao_saas(payload: IpsemgPayload):
+    # Reusa a MESMA lógica que já sabemos que funciona
+    result = await _ipsemg_internacao_core(payload)
+
+    pdf_path = result.get("arquivo_pdf")
+    if not pdf_path or not Path(pdf_path).exists():
+        raise HTTPException(
+            status_code=500,
+            detail="PDF não encontrado após geração da guia de internação"
+        )
+
+    # Monta o nome do arquivo: LIA_Sgu_Express_+nome_beneficiario+IPSEMG+data.pdf
+    nome_benef = sanitize_filename_part(payload.nome_beneficiario or "Paciente")
+
+    if getattr(payload, "data", None):
+        data_bruta = payload.data
+    else:
+        data_bruta = datetime.datetime.now().strftime("%d/%m/%Y")
+
+    data_formatada = data_bruta.replace("/", "-")
+
+    filename = f"LIA_Sgu_Express_+{nome_benef}+IPSEMG+{data_formatada}.pdf"
+
+    return FileResponse(
+        path=pdf_path,
+        media_type="application/pdf",
+        filename=filename
+    )
 
 @app.get("/versao", response_model=VersaoResponse)
 async def versao():
