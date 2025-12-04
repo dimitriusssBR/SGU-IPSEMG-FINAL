@@ -1,0 +1,13 @@
+services:
+  sgu-ipsemg:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: sgu-ipsemg
+    ports:
+      - "8000:8000"
+    volumes:
+      - ./app:/app
+    environment:
+
+      - PYTHONUNBUFFERED=1
