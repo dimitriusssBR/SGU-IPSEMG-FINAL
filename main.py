@@ -16,10 +16,21 @@ from fuzzywuzzy import fuzz
 from converte_em_pdf import gerar_pdf_final
 import uuid
 from pathlib import Path
+from fastapi.responses import FileResponse
+import tempfile
+from fastapi.middleware.cors import CORSMiddleware
 
 nest_asyncio.apply()
 app = FastAPI()
 
+# 🔓 CORS totalmente liberado (somente para desenvolvimento, mudar depois quando tiver dominio)
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],          # Libera qualquer origem
+    allow_credentials=True,
+    allow_methods=["*"],          # Libera todos os métodos (GET, POST, DELETE, etc.)
+    allow_headers=["*"],          # Libera todos os headers
+)
 VERSAO = "1.0 - 04/12/25"
 MODO_DEBUG = None
 
@@ -296,6 +307,48 @@ def set_cell_value_safely(ws, coord: str, value):
 
     raise ValueError(f"Célula {coord} é mesclada mas o range não foi encontrado.")
 
+
+@app.post("/ipsemg-sadt-saas")
+async def ipsemg_sadt_pdf(payload: IpsemgPayload):
+    try:
+        # 1) Carrega o template, preenche a planilha e salva no /tmp
+        wb = openpyxl.load_workbook(IPSEMG_SADT)
+        ws = wb.active
+
+        # ---- preenche as células como você já faz ----
+        set_cell_value_safely(ws, "B7", payload.nome_beneficiario)
+        set_cell_value_safely(ws, "B13", payload.solicitante)
+        set_cell_value_safely(ws, "B10", payload.prestador)
+        set_cell_value_safely(ws, "W10", payload.matricula)
+        set_cell_value_safely(ws, "B16", payload.uf)
+        set_cell_value_safely(ws, "Z13", payload.crm)
+        # ... resto do preenchimento ...
+
+        # 2) Cria diretório temporário e salva o XLSX preenchido
+        tmp_dir = Path(tempfile.mkdtemp())
+        xlsx_path = tmp_dir / "ipsemg_sadt_output.xlsx"
+        wb.save(xlsx_path)
+
+        # 3) Gera o PDF a partir do XLSX (como você já faz hoje)
+        #    assumindo que gerar_pdf_final(xlsx_path) retorna o caminho do PDF
+        pdf_path = gerar_pdf_final(xlsx_path)
+
+        if not pdf_path or not Path(pdf_path).exists():
+            raise HTTPException(status_code=500, detail="Erro ao gerar o PDF da guia")
+
+        # 4) Retorna o PDF diretamente para o navegador
+        return FileResponse(
+            path=str(pdf_path),
+            media_type="application/pdf",
+            filename="guia_ipsemg_sadt.pdf"
+        )
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        # opcional: logar o erro
+        logger.exception("Erro ao gerar guia IPSEMG SADT")
+        raise HTTPException(status_code=500, detail="Erro ao gerar a guia IPSEMG SADT")
 
 @app.post("/ipsemg-sadt")
 async def ipsemg_sadt(payload: IpsemgPayload):
