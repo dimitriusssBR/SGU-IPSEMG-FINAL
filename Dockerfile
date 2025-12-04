@@ -10,8 +10,12 @@ WORKDIR /app
 RUN apt-get update && \
     apt-get install -y --no-install-recommends \
         libreoffice \
+        libreoffice-calc \
+        libreoffice-writer \
+        libreoffice-draw \
         fonts-dejavu-core \
-        fonts-liberation && \
+        fonts-liberation \
+        libjpeg62-turbo && \
     apt-get clean && \
     rm -rf /var/lib/apt/lists/*
 
@@ -23,4 +27,5 @@ RUN pip install --no-cache-dir -r requirements.txt
 COPY . .
 
 # Cloud Run injeta PORT (normalmente 8080), seu main.py já usa os.getenv("PORT", 8000)
+
 CMD ["python", "-m", "main"]
