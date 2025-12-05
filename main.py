@@ -20,11 +20,18 @@ from pathlib import Path
 from fastapi.responses import FileResponse
 import tempfile
 from fastapi.middleware.cors import CORSMiddleware
+from openpyxl.drawing.image import Image as XLImage
+
+
+img = XLImage("logo_ipsemg.png")
+img.width = 130   # em pixels
+img.height = 52   # em pixels
+
 
 nest_asyncio.apply()
 app = FastAPI()
 
-# 🔓 CORS totalmente liberado (somente para desenvolvimento, mudar depois quando tiver dominio)
+# 🔓 CORS totalmente liberado (somente para desenvolvimento, mudar depois quando tiver dominio) DIMITRIUS MUDAR APOS PRODUCAO
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],          # Libera qualquer origem
@@ -308,6 +315,15 @@ def sanitize_filename_part(text: str) -> str:
 
     return text_clean or "Paciente"
 
+def aplicar_logo_ipsemg(ws, cell="A1"):
+    """
+    Adiciona o logo do IPSEMG na planilha na célula indicada.
+    """
+    try:
+        ws.add_image(img, "B1")
+    except Exception as e:
+        logger.error(f"Erro ao adicionar logo IPSEMG: {e}")
+
 def set_cell_value_safely(ws, coord: str, value):
     """
     Se a célula for parte de um merged range, grava na célula
@@ -340,6 +356,8 @@ async def _ipsemg_sadt_core(payload: IpsemgPayload) -> dict:
 
     # caminhos exclusivos dessa requisição
     xlsx_path = base_dir / "ipsemg_sadt_output.xlsx"
+    logger.info(f"[DEBUG] XLSX gerado em: {xlsx_path}")
+
 
     # carrega template
     wb = openpyxl.load_workbook(IPSEMG_SADT)
@@ -458,7 +476,7 @@ async def _ipsemg_sadt_core(payload: IpsemgPayload) -> dict:
         set_cell_value_safely(ws, qtd_coord, quantidades[idx] if idx < len(quantidades) else "")
 
     # salva o XLSX desta requisição
-
+    aplicar_logo_ipsemg(ws, cell="A1")
     wb.save(xlsx_path)
 
     try:
@@ -492,6 +510,7 @@ async def _ipsemg_internacao_core(payload: IpsemgPayload) -> dict:
     base_dir.mkdir(parents=True, exist_ok=True)
 
     xlsx_path = base_dir / "ipsemg_internacao_output.xlsx"
+    logger.info(f"[DEBUG] XLSX gerado em: {xlsx_path}")
 
     wb = openpyxl.load_workbook(IPSEMG_INTERNACAO)
     ws = wb.active  # primeira aba
@@ -610,6 +629,7 @@ async def _ipsemg_internacao_core(payload: IpsemgPayload) -> dict:
     # assinatura -> C67
     set_cell_value_safely(ws, "C67", payload.assinatura)
 
+    aplicar_logo_ipsemg(ws, cell="A1")
     # salva o XLSX desta requisição
     wb.save(xlsx_path)
 
