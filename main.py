@@ -1,4 +1,4 @@
-import datetime
+from datetime import datetime
 import os
 import re
 import time
@@ -665,14 +665,9 @@ async def ipsemg_sadt_saas(payload: IpsemgPayload):
     # Monta o nome do arquivo: LIA_Sgu_Express_+nome_beneficiario+IPSEMG+data.pdf
     nome_benef = sanitize_filename_part(payload.nome_beneficiario or "Paciente")
 
-    if getattr(payload, "data", None):
-        data_bruta = payload.data
-    else:
-        data_bruta = datetime.now().strftime("%d/%m/%Y")
+    timestamp = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
 
-    data_formatada = data_bruta.replace("/", "-")
-
-    filename = f"LIA_Sgu_Express_+{nome_benef}+IPSEMG+{data_formatada}.pdf"
+    filename = f"Sgu_Express_{nome_benef}_IPSEMG_SADT_{timestamp}.pdf"
 
     return FileResponse(
         path=pdf_path,
@@ -695,14 +690,9 @@ async def ipsemg_internacao_saas(payload: IpsemgPayload):
     # Monta o nome do arquivo: LIA_Sgu_Express_+nome_beneficiario+IPSEMG+data.pdf
     nome_benef = sanitize_filename_part(payload.nome_beneficiario or "Paciente")
 
-    if getattr(payload, "data", None):
-        data_bruta = payload.data
-    else:
-        data_bruta = datetime.datetime.now().strftime("%d/%m/%Y")
+    timestamp = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
 
-    data_formatada = data_bruta.replace("/", "-")
-
-    filename = f"LIA_Sgu_Express_+{nome_benef}+IPSEMG+{data_formatada}.pdf"
+    filename = f"Sgu_Express_{nome_benef}_IPSEMG_INTERNACAO_{timestamp}.pdf"
 
     return FileResponse(
         path=pdf_path,
