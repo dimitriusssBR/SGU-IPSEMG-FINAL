@@ -39,7 +39,7 @@ app.add_middleware(
     allow_methods=["*"],          # Libera todos os métodos (GET, POST, DELETE, etc.)
     allow_headers=["*"],          # Libera todos os headers
 )
-VERSAO = "1.0 - 04/12/25"
+VERSAO = "1.1 - 06/12/25"
 MODO_DEBUG = None
 
 IPSEMG_SADT = "IPSEMG_SADT.xlsx"
@@ -668,6 +668,7 @@ async def ipsemg_sadt_saas(payload: IpsemgPayload):
     timestamp = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
 
     filename = f"Sgu_Express_{nome_benef}_IPSEMG_SADT_{timestamp}.pdf"
+    print(filename)
 
     return FileResponse(
         path=pdf_path,
@@ -693,6 +694,7 @@ async def ipsemg_internacao_saas(payload: IpsemgPayload):
     timestamp = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
 
     filename = f"Sgu_Express_{nome_benef}_IPSEMG_INTERNACAO_{timestamp}.pdf"
+    print(filename)
 
     return FileResponse(
         path=pdf_path,
