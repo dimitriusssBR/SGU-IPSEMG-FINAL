@@ -4,8 +4,9 @@ import fitz
 from pathlib import Path
 
 # ⚠️ LOCAL (WINDOWS): DIMITRIUS
-#SOFFICE = r"D:\Program Files\LibreOffice\program\soffice.exe"  # <-- PARA PRODUÇÃO: deixe vazio ou remova e use 'soffice' no
+#SOFFICE = r"D:\Program Files\LibreOffice\program\soffice.exe"
 SOFFICE = None
+
 
 def get_soffice_cmd() -> str:
     """
@@ -66,14 +67,13 @@ def xlsx_to_pdf(xlsx_path: str, pdf_path: str | None = None) -> str:
     # LibreOffice gera o PDF com o mesmo nome base do XLSX
     return str(pdf_path)
 
-def manter_apenas_primeira_pagina(pdf_path: str):
+
+def manter_apenas_primeira_pagina(pdf_path: str) -> str:
     """
     Mantém apenas a primeira página do PDF.
-    Sobrescreve o arquivo original.
+    NÃO sobrescreve o original. Gera: <nome>_1pag.pdf
+    Retorna o caminho do novo PDF.
     """
-    from pathlib import Path
-    import fitz
-
     pdf_path = Path(pdf_path).resolve()
 
     if not pdf_path.exists():
@@ -85,21 +85,20 @@ def manter_apenas_primeira_pagina(pdf_path: str):
     new_doc = fitz.open()
     new_doc.insert_pdf(doc, from_page=0, to_page=0)
 
-    temp_path = pdf_path.with_name("temp_" + pdf_path.name)
-    new_doc.save(str(temp_path))
+    out_path = pdf_path.with_name(pdf_path.stem + "_1pag.pdf")
+    new_doc.save(str(out_path))
     new_doc.close()
     doc.close()
 
-    # substituir o arquivo original
-    temp_path.replace(pdf_path)
-
-    print(f"PDF reduzido para apenas 1 página: {pdf_path}")
+    print(f"PDF reduzido para apenas 1 página: {out_path}")
+    return str(out_path)
 
 
-def aplicar_marca_dagua_fitz(pdf_path: str):
+def aplicar_marca_dagua_fitz(pdf_path: str) -> str:
     """
-    Aplica marca d'água no PDF já convertido usando PyMuPDF (fitz).
-    O PDF original é sobrescrito.
+    Aplica marca d'água no PDF usando PyMuPDF (fitz).
+    NÃO sobrescreve o original. Gera: <nome>_marca.pdf
+    Retorna o caminho do PDF com marca.
     """
     pdf_path = Path(pdf_path).resolve()
 
@@ -111,21 +110,31 @@ def aplicar_marca_dagua_fitz(pdf_path: str):
     texto1 = "  Emitido via"
     texto2 = "SGU Express"
 
-    for page in doc:
+    for page_index, page in enumerate(doc):
         width, height = page.rect.width, page.rect.height
         rotacao = page.rotation  # 0 para portrait, 90 para landscape
+
+        print(f"[DEBUG] Página {page_index} – width={width}, height={height}, rotation={rotacao}")
 
         if rotacao == 90:
             x = 26
             y = 75
             angle = 90
             page.insert_text(
-                (x, y), texto1, fontsize=9, color=(0.5, 0.5, 0.5),
-                rotate=angle, overlay=True
+                (x, y),
+                texto1,
+                fontsize=9,
+                color=(0.5, 0.5, 0.5),
+                rotate=angle,
+                overlay=True,
             )
             page.insert_text(
-                (x + 10, y), texto2, fontsize=9, color=(0.5, 0.5, 0.5),
-                rotate=angle, overlay=True
+                (x + 10, y),
+                texto2,
+                fontsize=9,
+                color=(0.5, 0.5, 0.5),
+                rotate=angle,
+                overlay=True,
             )
 
         else:
@@ -133,55 +142,109 @@ def aplicar_marca_dagua_fitz(pdf_path: str):
             y = 25
             angle = 0
             page.insert_text(
-                (x, y), texto1, fontsize=9, color=(0.5, 0.5, 0.5),
-                rotate=angle, overlay=True
+                (x, y),
+                texto1,
+                fontsize=9,
+                color=(0.5, 0.5, 0.5),
+                rotate=angle,
+                overlay=True,
             )
             page.insert_text(
-                (x, y + 11), texto2, fontsize=9, color=(0.5, 0.5, 0.5),
-                rotate=angle, overlay=True
+                (x, y + 11),
+                texto2,
+                fontsize=9,
+                color=(0.5, 0.5, 0.5),
+                rotate=angle,
+                overlay=True,
             )
 
-    temp_path = pdf_path.with_name(f"temp_{pdf_path.name}")
-    doc.save(temp_path)
+    out_path = pdf_path.with_name(pdf_path.stem + "_marca.pdf")
+    doc.save(str(out_path))
     doc.close()
 
-    temp_path.replace(pdf_path)
+    print(f"Marca d'água aplicada com sucesso: {out_path}")
+    return str(out_path)
 
-    print(f"Marca d'água aplicada com sucesso: {pdf_path}")
+
+def rasterizar_pdf(pdf_path: str, dpi: int = 150) -> str:
+    """
+    Recebe um PDF (tipicamente já com marca) e gera:
+        <base>_final.pdf
+    Rasterizado (imagem por página), para ficar não editável.
+    Retorna o caminho do PDF final.
+    """
+    pdf_path = Path(pdf_path).resolve()
+
+    if not pdf_path.exists():
+        raise FileNotFoundError(f"PDF não encontrado: {pdf_path}")
+
+    doc = fitz.open(str(pdf_path))
+    new_doc = fitz.open()
+
+    for page_index, page in enumerate(doc):
+        rect = page.rect
+        pix = page.get_pixmap(dpi=dpi, alpha=False)
+
+        new_page = new_doc.new_page(width=rect.width, height=rect.height)
+        new_page.insert_image(rect, pixmap=pix)
+
+    stem_base = pdf_path.stem
+    if stem_base.endswith("_marca"):
+        stem_base = stem_base[:-6]
+
+    out_path = pdf_path.with_name(stem_base + "_final.pdf")
+
+    new_doc.save(str(out_path), deflate=True)
+    new_doc.close()
+    doc.close()
+
+    print(f"PDF rasterizado (não editável) gerado: {out_path}")
+    return str(out_path)
+
 
 def gerar_pdf_com_marca(xlsx_path: str) -> str:
     """
-    Converte um .xlsx em PDF e aplica marca d'água automaticamente.
-    Retorna o caminho final do PDF.
+    Converte um .xlsx em PDF e aplica marca d'água.
+    Retorna o caminho do PDF com marca (pode ter múltiplas páginas).
     """
     # 1) converter para PDF
-    pdf_path = xlsx_to_pdf(xlsx_path)
+    pdf_base = xlsx_to_pdf(xlsx_path)
 
-    # 2) aplicar marca d’água
-    aplicar_marca_dagua_fitz(pdf_path)
+    # 2) aplicar marca d’água (novo arquivo)
+    pdf_marca = aplicar_marca_dagua_fitz(pdf_base)
 
-    return pdf_path
+    return pdf_marca
+
 
 def gerar_pdf_final(xlsx_path: str) -> str:
     """
-    Converte XLSX em PDF, aplica marca d'água e mantém apenas a primeira página.
-    Retorna o caminho final do PDF gerado.
+    Converte XLSX em PDF, mantém apenas a primeira página,
+    aplica marca d'água e gera um PDF final rasterizado/imutável.
+
+    Fluxo de arquivos:
+        <nome>.pdf
+        <nome>_1pag.pdf
+        <nome>_1pag_marca.pdf
+        <nome>_1pag_final.pdf
+
+    Retorna o caminho FINAL (<nome>_1pag_final.pdf).
     """
-    # 1) Converter para PDF
-    pdf_path = xlsx_to_pdf(xlsx_path)
+    # 1) Converter XLSX → PDF
+    pdf_base = xlsx_to_pdf(xlsx_path)
 
-    # 2) Aplicar marca d'água
-    aplicar_marca_dagua_fitz(pdf_path)
+    # 2) Manter apenas a primeira página
+    pdf_1pag = manter_apenas_primeira_pagina(pdf_base)
 
-    # 3) Reduzir para apenas 1 página
-    manter_apenas_primeira_pagina(pdf_path)
+    # 3) Aplicar marca d'água
+    pdf_marca = aplicar_marca_dagua_fitz(pdf_1pag)
 
-    return pdf_path
+    # 4) Rasterizar, deixando imutável
+    pdf_final = rasterizar_pdf(pdf_marca, dpi=150)
+
+    return pdf_final
 
 
 if __name__ == "__main__":
-    from pathlib import Path
-
     base_dir = Path(__file__).resolve().parent
     xlsx_files = list(base_dir.glob("*.xlsx"))
 
@@ -192,21 +255,11 @@ if __name__ == "__main__":
         for f in xlsx_files:
             print(" -", f.name)
 
-        print("\nIniciando conversão para PDF + marca d'água + corte para 1 página...\n")
+        print("\nIniciando conversão para PDF + marca d'água + corte para 1 página + raster...\n")
 
         for f in xlsx_files:
             try:
-                # 1) Converter XLSX → PDF
-                pdf_path = xlsx_to_pdf(str(f))
-                print(f"[OK] PDF gerado: {Path(pdf_path).name}")
-
-                # 2) Aplicar marca d'água
-                aplicar_marca_dagua_fitz(pdf_path)
-                print(f"[OK] Marca d'água aplicada: {Path(pdf_path).name}")
-
-                # 3) Garantir apenas a primeira página
-                manter_apenas_primeira_pagina(pdf_path)
-                print(f"[OK] PDF reduzido para 1 página: {Path(pdf_path).name}\n")
-
+                pdf_final = gerar_pdf_final(str(f))
+                print(f"[OK] PDF final gerado: {Path(pdf_final).name}\n")
             except Exception as e:
                 print(f"[FALHA] {f.name}: {e}\n")
