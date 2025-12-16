@@ -108,7 +108,7 @@ def aplicar_marca_dagua_fitz(pdf_path: str) -> str:
     doc = fitz.open(str(pdf_path))
 
     texto1 = "  Emitido via"
-    texto2 = "SGU Express"
+    texto2 = "PedeGuia.com.br"
 
     for page_index, page in enumerate(doc):
         width, height = page.rect.width, page.rect.height
@@ -263,3 +263,4 @@ if __name__ == "__main__":
                 print(f"[OK] PDF final gerado: {Path(pdf_final).name}\n")
             except Exception as e:
                 print(f"[FALHA] {f.name}: {e}\n")
+
